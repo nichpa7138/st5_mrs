@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import type {
@@ -13,14 +14,17 @@ import type {
   PublicMember,
   StressResultText,
   WeeklyTrendPoint,
-} from '../src/types/st5.ts';
+} from '../src/types/st5';
 
 interface DatabaseSchema {
   members: Member[];
   assessmentLogs: AssessmentLog[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const IS_VERCEL = Boolean(process.env.VERCEL || process.env.NOW_REGION);
+const DATA_DIR = IS_VERCEL
+  ? path.join(os.tmpdir(), 'st5-wellness-data')
+  : path.resolve(process.cwd(), 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
@@ -158,36 +162,29 @@ function makeSeedData(): DatabaseSchema {
     q4: number;
     q5: number;
   }> = [
-    // Week of 2026-10-05
     { st_id: '64010001', date_time: '2026-10-06 09:30:00', q1: 1, q2: 1, q3: 1, q4: 0, q5: 0 },
     { st_id: '64010002', date_time: '2026-10-07 11:15:00', q1: 1, q2: 0, q3: 1, q4: 1, q5: 0 },
     { st_id: '64010003', date_time: '2026-10-08 14:20:00', q1: 2, q2: 1, q3: 1, q4: 1, q5: 1 },
-    // Week of 2026-10-12
     { st_id: '64010004', date_time: '2026-10-13 10:05:00', q1: 1, q2: 1, q3: 1, q4: 1, q5: 0 },
     { st_id: '64010005', date_time: '2026-10-14 15:40:00', q1: 2, q2: 2, q3: 1, q4: 1, q5: 1 },
     { st_id: '64010001', date_time: '2026-10-15 16:10:00', q1: 2, q2: 1, q3: 1, q4: 1, q5: 0 },
     { st_id: '64010006', date_time: '2026-10-16 09:45:00', q1: 0, q2: 1, q3: 1, q4: 0, q5: 0 },
-    // Week of 2026-10-19 (Midterm prep spike)
     { st_id: '64010007', date_time: '2026-10-20 13:25:00', q1: 2, q2: 2, q3: 2, q4: 1, q5: 1 },
     { st_id: '64010008', date_time: '2026-10-21 17:00:00', q1: 3, q2: 2, q3: 2, q4: 2, q5: 1 },
     { st_id: '64010002', date_time: '2026-10-22 10:30:00', q1: 2, q2: 1, q3: 2, q4: 1, q5: 0 },
     { st_id: '64010009', date_time: '2026-10-23 14:50:00', q1: 1, q2: 2, q3: 1, q4: 1, q5: 1 },
-    // Week of 2026-10-26
     { st_id: '64010001', date_time: '2026-10-27 11:20:00', q1: 2, q2: 2, q3: 2, q4: 1, q5: 1 },
     { st_id: '64010010', date_time: '2026-10-28 09:10:00', q1: 1, q2: 1, q3: 1, q4: 0, q5: 1 },
     { st_id: '64010003', date_time: '2026-10-29 15:05:00', q1: 2, q2: 1, q3: 2, q4: 2, q5: 1 },
     { st_id: '64010005', date_time: '2026-10-30 16:40:00', q1: 1, q2: 1, q3: 1, q4: 1, q5: 0 },
-    // Week of 2026-11-02
     { st_id: '64010004', date_time: '2026-11-03 10:15:00', q1: 1, q2: 0, q3: 1, q4: 1, q5: 0 },
     { st_id: '64010006', date_time: '2026-11-04 13:45:00', q1: 1, q2: 1, q3: 1, q4: 1, q5: 1 },
     { st_id: '64010007', date_time: '2026-11-05 14:20:00', q1: 1, q2: 1, q3: 0, q4: 1, q5: 0 },
     { st_id: '64010001', date_time: '2026-11-06 18:00:00', q1: 1, q2: 1, q3: 1, q4: 0, q5: 1 },
-    // Week of 2026-11-09
     { st_id: '64010008', date_time: '2026-11-10 09:50:00', q1: 2, q2: 1, q3: 1, q4: 1, q5: 0 },
     { st_id: '64010009', date_time: '2026-11-11 11:30:00', q1: 0, q2: 1, q3: 1, q4: 0, q5: 0 },
     { st_id: '64010010', date_time: '2026-11-12 15:15:00', q1: 1, q2: 1, q3: 0, q4: 1, q5: 0 },
     { st_id: '64010002', date_time: '2026-11-13 16:45:00', q1: 1, q2: 0, q3: 1, q4: 0, q5: 0 },
-    // Current week 2026-11-16
     { st_id: '64010001', date_time: '2026-11-16 09:15:00', q1: 1, q2: 1, q3: 0, q4: 1, q5: 0 },
     { st_id: '64010003', date_time: '2026-11-16 11:40:00', q1: 1, q2: 2, q3: 1, q4: 1, q5: 0 },
   ];
@@ -211,20 +208,34 @@ function makeSeedData(): DatabaseSchema {
   return { members, assessmentLogs };
 }
 
+let memoryFallbackDb: DatabaseSchema | null = null;
+
 function readDb(): DatabaseSchema {
-  ensureDataDirs();
-  if (!fs.existsSync(DB_FILE)) {
-    const seed = makeSeedData();
-    fs.writeFileSync(DB_FILE, JSON.stringify(seed, null, 2), 'utf8');
-    return seed;
+  try {
+    ensureDataDirs();
+    if (!fs.existsSync(DB_FILE)) {
+      const seed = makeSeedData();
+      fs.writeFileSync(DB_FILE, JSON.stringify(seed, null, 2), 'utf8');
+      return seed;
+    }
+    const raw = fs.readFileSync(DB_FILE, 'utf8');
+    return JSON.parse(raw) as DatabaseSchema;
+  } catch {
+    if (!memoryFallbackDb) {
+      memoryFallbackDb = makeSeedData();
+    }
+    return memoryFallbackDb;
   }
-  const raw = fs.readFileSync(DB_FILE, 'utf8');
-  return JSON.parse(raw) as DatabaseSchema;
 }
 
 function writeDb(db: DatabaseSchema) {
-  ensureDataDirs();
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  memoryFallbackDb = db;
+  try {
+    ensureDataDirs();
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+  } catch {
+    // Fallback gracefully to in-memory storage if filesystem is read-only
+  }
 }
 
 export function sanitizeMember(member: Member): PublicMember {
@@ -323,11 +334,21 @@ function saveBase64ProfileImage(st_id: string, dataUrl: string): string | null {
   const buffer = Buffer.from(match[2], 'base64');
   if (buffer.length > 4 * 1024 * 1024) return null;
 
-  const safeId = st_id.replace(/[^a-zA-Z0-9_-]/g, '');
-  const filename = `profile_${safeId}_${Date.now()}.${ext}`;
-  const fullPath = path.join(getUploadsDir(), filename);
-  fs.writeFileSync(fullPath, buffer);
-  return `/uploads/${filename}`;
+  // On Vercel serverless instances, local disk is ephemeral across invocations,
+  // so keep validated Data URL directly for reliable rendering.
+  if (IS_VERCEL) {
+    return dataUrl;
+  }
+
+  try {
+    const safeId = st_id.replace(/[^a-zA-Z0-9_-]/g, '');
+    const filename = `profile_${safeId}_${Date.now()}.${ext}`;
+    const fullPath = path.join(getUploadsDir(), filename);
+    fs.writeFileSync(fullPath, buffer);
+    return `/uploads/${filename}`;
+  } catch {
+    return dataUrl;
+  }
 }
 
 export function getMemberById(st_id: string): PublicMember | null {
@@ -408,7 +429,7 @@ function getWeekMondayKey(dateTimeStr: string): string {
   const datePart = dateTimeStr.slice(0, 10);
   const [y, m, d] = datePart.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  const day = dt.getUTCDay(); // 0 = Sun, 1 = Mon ... 6 = Sat
+  const day = dt.getUTCDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;
   dt.setUTCDate(dt.getUTCDate() + diffToMonday);
   const yy = dt.getUTCFullYear();
@@ -427,11 +448,6 @@ export function getDashboardStats(): DashboardStats {
   const members = db.members;
   const logs = db.assessmentLogs;
 
-  const memberMap = new Map<string, Member>();
-  for (const m of members) {
-    memberMap.set(m.st_id, m);
-  }
-
   const totalMembers = members.length;
   const totalAssessments = logs.length;
   const overallAvgScore =
@@ -445,7 +461,6 @@ export function getDashboardStats(): DashboardStats {
   const lowStressRate =
     totalAssessments > 0 ? Number(((lowStressCount / totalAssessments) * 100).toFixed(1)) : 0;
 
-  // Course stats
   const courses: CourseOption[] = ['ปวส.เวชระเบียน', 'วทบ.เวชระเบียน'];
   const courseStats: CourseStat[] = courses.map((course) => {
     const courseMembers = members.filter((m) => m.course === course);
@@ -469,7 +484,6 @@ export function getDashboardStats(): DashboardStats {
     };
   });
 
-  // Gender stats derived from prefix
   const getGender = (prefix: PrefixOption): 'ชาย' | 'หญิง' =>
     prefix === 'นาย' ? 'ชาย' : 'หญิง';
 
@@ -496,7 +510,6 @@ export function getDashboardStats(): DashboardStats {
     };
   });
 
-  // Weekly trend
   const weekGroups = new Map<string, AssessmentLog[]>();
   for (const log of logs) {
     const key = getWeekMondayKey(log.date_time);
@@ -521,7 +534,6 @@ export function getDashboardStats(): DashboardStats {
       };
     });
 
-  // Stress level distribution
   const levels: StressResultText[] = [
     'ความเครียดน้อย',
     'ความเครียดปานกลาง',
