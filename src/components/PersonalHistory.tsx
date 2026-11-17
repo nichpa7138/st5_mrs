@@ -1,5 +1,6 @@
 import { ChangeEvent, useState } from 'react';
 import { Camera, ClipboardPlus } from 'lucide-react';
+import { updateAvatarApi } from '../services/apiClient';
 import { AssessmentLog, interpretStressScore, PublicMember } from '../types/st5';
 import { Avatar } from './Avatar';
 
@@ -35,22 +36,12 @@ export function PersonalHistory({
       setUploadingAvatar(true);
       setAvatarError('');
       try {
-        const res = await fetch('/api/member/avatar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            st_id: member.st_id,
-            profileImgBase64: reader.result,
-          }),
-        });
-        const data = (await res.json()) as { member?: PublicMember; error?: string };
-        if (!res.ok || !data.member) {
-          setAvatarError(data.error ?? 'อัปโหลดรูปภาพไม่สำเร็จ');
+        const result = await updateAvatarApi(member.st_id, reader.result);
+        if (!result.ok) {
+          setAvatarError(result.error);
           return;
         }
-        onMemberUpdated(data.member);
-      } catch {
-        setAvatarError('ไม่สามารถอัปโหลดรูปภาพได้');
+        onMemberUpdated(result.member);
       } finally {
         setUploadingAvatar(false);
       }

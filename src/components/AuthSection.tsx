@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useState } from 'react';
 import { Camera, CheckCircle2, Eye, EyeOff, LogIn, ShieldCheck, Sparkles, UserPlus } from 'lucide-react';
+import { loginApi, registerApi } from '../services/apiClient';
 import type { CourseOption, PrefixOption, PublicMember } from '../types/st5';
 
 interface AuthSectionProps {
@@ -46,19 +47,12 @@ export function AuthSection({ onLoginSuccess, initialMode = 'login' }: AuthSecti
 
     setLoginLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ st_id: loginStId.trim(), dob: loginDob.trim() }),
-      });
-      const data = (await res.json()) as { member?: PublicMember; error?: string };
-      if (!res.ok || !data.member) {
-        setLoginError(data.error ?? 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบข้อมูลอีกครั้ง');
+      const result = await loginApi(loginStId.trim(), loginDob.trim());
+      if (!result.ok) {
+        setLoginError(result.error);
         return;
       }
-      onLoginSuccess(data.member);
-    } catch {
-      setLoginError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+      onLoginSuccess(result.member);
     } finally {
       setLoginLoading(false);
     }
@@ -104,28 +98,21 @@ export function AuthSection({ onLoginSuccess, initialMode = 'login' }: AuthSecti
 
     setRegLoading(true);
     try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          st_id: regStId.trim(),
-          prefix: regPrefix,
-          name: regName.trim(),
-          lname: regLname.trim(),
-          dob: regDob.trim(),
-          email: regEmail.trim(),
-          course: regCourse,
-          profileImgBase64: regPreview || undefined,
-        }),
+      const result = await registerApi({
+        st_id: regStId.trim(),
+        prefix: regPrefix,
+        name: regName.trim(),
+        lname: regLname.trim(),
+        dob: regDob.trim(),
+        email: regEmail.trim(),
+        course: regCourse,
+        profileImgBase64: regPreview || undefined,
       });
-      const data = (await res.json()) as { member?: PublicMember; error?: string };
-      if (!res.ok || !data.member) {
-        setRegError(data.error ?? 'ลงทะเบียนไม่สำเร็จ กรุณาตรวจสอบข้อมูล');
+      if (!result.ok) {
+        setRegError(result.error);
         return;
       }
-      onLoginSuccess(data.member);
-    } catch {
-      setRegError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+      onLoginSuccess(result.member);
     } finally {
       setRegLoading(false);
     }

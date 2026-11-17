@@ -5,6 +5,11 @@ import { AssessmentWorkspace } from './components/AssessmentWorkspace';
 import { Avatar } from './components/Avatar';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { PersonalHistory } from './components/PersonalHistory';
+import {
+  fetchDashboardApi,
+  getAssessmentsApi,
+  getMemberApi,
+} from './services/apiClient';
 import type { AssessmentLog, DashboardStats, PublicMember } from './types/st5';
 
 const SESSION_STORAGE_KEY = 'st5_logged_in_stid';
@@ -27,9 +32,7 @@ export default function App() {
     setDashboardLoading(true);
     setDashboardError('');
     try {
-      const res = await fetch('/api/dashboard');
-      if (!res.ok) throw new Error('failed');
-      const data = (await res.json()) as DashboardStats;
+      const data = await fetchDashboardApi();
       setDashboardStats(data);
     } catch {
       setDashboardError('ไม่สามารถโหลดข้อมูลสถิติภาพรวมได้ในขณะนี้');
@@ -41,10 +44,8 @@ export default function App() {
   const fetchPersonalLogs = useCallback(async (st_id: string) => {
     setLogsLoading(true);
     try {
-      const res = await fetch(`/api/assessments/${encodeURIComponent(st_id)}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { logs: AssessmentLog[] };
-      setPersonalLogs(data.logs ?? []);
+      const logs = await getAssessmentsApi(st_id);
+      setPersonalLogs(logs);
     } finally {
       setLogsLoading(false);
     }
@@ -61,12 +62,11 @@ export default function App() {
       return;
     }
 
-    fetch(`/api/member/${encodeURIComponent(savedId)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { member?: PublicMember } | null) => {
-        if (data?.member) {
-          setMember(data.member);
-          void fetchPersonalLogs(data.member.st_id);
+    getMemberApi(savedId)
+      .then((found) => {
+        if (found) {
+          setMember(found);
+          void fetchPersonalLogs(found.st_id);
         } else {
           localStorage.removeItem(SESSION_STORAGE_KEY);
         }

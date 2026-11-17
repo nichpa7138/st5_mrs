@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { CheckCircle2, History, RotateCcw, Send } from 'lucide-react';
+import { createAssessmentApi } from '../services/apiClient';
 import {
   AssessmentLog,
   interpretStressScore,
@@ -58,27 +59,20 @@ export function AssessmentWorkspace({
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/assessments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          st_id: member.st_id,
-          q1: answers.q1,
-          q2: answers.q2,
-          q3: answers.q3,
-          q4: answers.q4,
-          q5: answers.q5,
-        }),
+      const result = await createAssessmentApi({
+        st_id: member.st_id,
+        q1: Number(answers.q1),
+        q2: Number(answers.q2),
+        q3: Number(answers.q3),
+        q4: Number(answers.q4),
+        q5: Number(answers.q5),
       });
-      const data = (await res.json()) as { log?: AssessmentLog; error?: string };
-      if (!res.ok || !data.log) {
-        setError(data.error ?? 'ไม่สามารถบันทึกผลการประเมินได้');
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      setSubmittedLog(data.log);
-      onAssessmentSaved(data.log);
-    } catch {
-      setError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์ กรุณาลองใหม่อีกครั้ง');
+      setSubmittedLog(result.log);
+      onAssessmentSaved(result.log);
     } finally {
       setSubmitting(false);
     }
