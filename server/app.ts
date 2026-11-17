@@ -9,7 +9,20 @@ import {
   registerMember,
   updateMemberAvatar,
 } from './db';
-import type { CourseOption, PrefixOption } from '../src/types/st5';
+import { callGasGet, callGasPost, isGasEnabled } from './gasBridge';
+import type {
+  AssessmentLog,
+  CourseOption,
+  DashboardStats,
+  PrefixOption,
+  PublicMember,
+} from '../src/types/st5';
+
+interface GasBaseResponse {
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
 
 export function createApiApp() {
   const app = express();
@@ -23,35 +36,66 @@ export function createApiApp() {
   }
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true });
+    res.json({ ok: true, backend: isGasEnabled() ? 'google-apps-script' : 'local' });
   });
 
-  app.get('/api/dashboard', (_req, res) => {
+  app.get('/api/dashboard', async (_req, res) => {
     try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasGet<GasBaseResponse & { data?: DashboardStats }>({
+          action: 'dashboard',
+        });
+        if (!gasRes.ok || !gasRes.data) {
+          return res.status(gasRes.status ?? 502).json({
+            error: gasRes.error ?? 'ไม่สามารถโหลดข้อมูลจาก Google Sheets ได้',
+          });
+        }
+        return res.json(gasRes.data);
+      }
+
       const stats = getDashboardStats();
-      res.json(stats);
+      return res.json(stats);
     } catch (err) {
       console.error('Error building dashboard stats:', err);
-      res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูลสรุปสถิติได้' });
+      return res.status(500).json({ error: 'ไม่สามารถโหลดข้อมูลสรุปสถิติได้' });
     }
   });
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     const { st_id, dob } = req.body as { st_id?: string; dob?: string };
     if (!st_id || !dob) {
       return res.status(400).json({ error: 'กรุณากรอกรหัสนักศึกษาและวันเดือนปีเกิด' });
     }
 
-    const member = authenticateMember(st_id, dob);
-    if (!member) {
-      return res.status(401).json({
-        error: 'รหัสนักศึกษาหรือวันเดือนปีเกิด (ววดดปปปป พ.ศ.) ไม่ถูกต้อง',
-      });
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasPost<GasBaseResponse & { member?: PublicMember }>({
+          action: 'login',
+          st_id: st_id.trim(),
+          dob: dob.trim(),
+        });
+        if (!gasRes.ok || !gasRes.member) {
+          return res.status(gasRes.status ?? 401).json({
+            error: gasRes.error ?? 'รหัสนักศึกษาหรือวันเดือนปีเกิด (ววดดปปปป พ.ศ.) ไม่ถูกต้อง',
+          });
+        }
+        return res.json({ member: gasRes.member });
+      }
+
+      const member = authenticateMember(st_id, dob);
+      if (!member) {
+        return res.status(401).json({
+          error: 'รหัสนักศึกษาหรือวันเดือนปีเกิด (ววดดปปปป พ.ศ.) ไม่ถูกต้อง',
+        });
+      }
+      return res.json({ member });
+    } catch (err) {
+      console.error('Login error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถเชื่อมต่อระบบยืนยันตัวตนได้' });
     }
-    return res.json({ member });
   });
 
-  app.post('/api/auth/register', (req, res) => {
+  app.post('/api/auth/register', async (req, res) => {
     const body = req.body as {
       st_id?: string;
       prefix?: PrefixOption;
@@ -73,24 +117,49 @@ export function createApiApp() {
       return res.status(400).json({ error: 'กรุณาเลือกหลักสูตร / สาขาวิชา' });
     }
 
-    const result = registerMember({
-      st_id: body.st_id ?? '',
-      prefix: body.prefix,
-      name: body.name ?? '',
-      lname: body.lname ?? '',
-      dob: body.dob ?? '',
-      email: body.email ?? '',
-      course: body.course,
-      profileImgBase64: body.profileImgBase64,
-    });
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasPost<GasBaseResponse & { member?: PublicMember }>({
+          action: 'register',
+          st_id: body.st_id ?? '',
+          prefix: body.prefix,
+          name: body.name ?? '',
+          lname: body.lname ?? '',
+          dob: body.dob ?? '',
+          email: body.email ?? '',
+          course: body.course,
+          profileImgBase64: body.profileImgBase64 ?? '',
+        });
+        if (!gasRes.ok || !gasRes.member) {
+          return res.status(gasRes.status ?? 400).json({
+            error: gasRes.error ?? 'ลงทะเบียนไม่สำเร็จ กรุณาตรวจสอบข้อมูล',
+          });
+        }
+        return res.status(201).json({ member: gasRes.member });
+      }
 
-    if (!result.ok) {
-      return res.status(400).json({ error: result.error });
+      const result = registerMember({
+        st_id: body.st_id ?? '',
+        prefix: body.prefix,
+        name: body.name ?? '',
+        lname: body.lname ?? '',
+        dob: body.dob ?? '',
+        email: body.email ?? '',
+        course: body.course,
+        profileImgBase64: body.profileImgBase64,
+      });
+
+      if (!result.ok) {
+        return res.status(400).json({ error: result.error });
+      }
+      return res.status(201).json({ member: result.member });
+    } catch (err) {
+      console.error('Register error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถบันทึกข้อมูลสมาชิกได้' });
     }
-    return res.status(201).json({ member: result.member });
   });
 
-  app.post('/api/member/avatar', (req, res) => {
+  app.post('/api/member/avatar', async (req, res) => {
     const { st_id, profileImgBase64 } = req.body as {
       st_id?: string;
       profileImgBase64?: string;
@@ -98,29 +167,85 @@ export function createApiApp() {
     if (!st_id || !profileImgBase64) {
       return res.status(400).json({ error: 'ข้อมูลรูปภาพไม่สมบูรณ์' });
     }
-    const updated = updateMemberAvatar(st_id, profileImgBase64);
-    if (!updated) {
-      return res.status(400).json({
-        error: 'ไม่สามารถอัปโหลดรูปภาพได้ (รองรับ PNG/JPG/WEBP ขนาดไม่เกิน 4MB)',
-      });
+
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasPost<GasBaseResponse & { member?: PublicMember }>({
+          action: 'updateAvatar',
+          st_id,
+          profileImgBase64,
+        });
+        if (!gasRes.ok || !gasRes.member) {
+          return res.status(gasRes.status ?? 400).json({
+            error: gasRes.error ?? 'ไม่สามารถอัปโหลดรูปภาพลง Google Drive ได้',
+          });
+        }
+        return res.json({ member: gasRes.member });
+      }
+
+      const updated = updateMemberAvatar(st_id, profileImgBase64);
+      if (!updated) {
+        return res.status(400).json({
+          error: 'ไม่สามารถอัปโหลดรูปภาพได้ (รองรับ PNG/JPG/WEBP ขนาดไม่เกิน 4MB)',
+        });
+      }
+      return res.json({ member: updated });
+    } catch (err) {
+      console.error('Avatar upload error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถอัปโหลดรูปภาพได้' });
     }
-    return res.json({ member: updated });
   });
 
-  app.get('/api/member/:st_id', (req, res) => {
-    const member = getMemberById(req.params.st_id);
-    if (!member) {
-      return res.status(404).json({ error: 'ไม่พบข้อมูลนักศึกษา' });
+  app.get('/api/member/:st_id', async (req, res) => {
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasGet<GasBaseResponse & { member?: PublicMember }>({
+          action: 'member',
+          st_id: req.params.st_id,
+        });
+        if (!gasRes.ok || !gasRes.member) {
+          return res.status(gasRes.status ?? 404).json({
+            error: gasRes.error ?? 'ไม่พบข้อมูลนักศึกษา',
+          });
+        }
+        return res.json({ member: gasRes.member });
+      }
+
+      const member = getMemberById(req.params.st_id);
+      if (!member) {
+        return res.status(404).json({ error: 'ไม่พบข้อมูลนักศึกษา' });
+      }
+      return res.json({ member });
+    } catch (err) {
+      console.error('Get member error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถดึงข้อมูลนักศึกษาได้' });
     }
-    return res.json({ member });
   });
 
-  app.get('/api/assessments/:st_id', (req, res) => {
-    const logs = getMemberAssessments(req.params.st_id);
-    res.json({ logs });
+  app.get('/api/assessments/:st_id', async (req, res) => {
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasGet<GasBaseResponse & { logs?: AssessmentLog[] }>({
+          action: 'assessments',
+          st_id: req.params.st_id,
+        });
+        if (!gasRes.ok) {
+          return res.status(gasRes.status ?? 502).json({
+            error: gasRes.error ?? 'ไม่สามารถดึงประวัติการประเมินได้',
+          });
+        }
+        return res.json({ logs: gasRes.logs ?? [] });
+      }
+
+      const logs = getMemberAssessments(req.params.st_id);
+      return res.json({ logs });
+    } catch (err) {
+      console.error('Get assessments error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถดึงประวัติการประเมินได้' });
+    }
   });
 
-  app.post('/api/assessments', (req, res) => {
+  app.post('/api/assessments', async (req, res) => {
     const body = req.body as {
       st_id?: string;
       q1?: number;
@@ -134,19 +259,42 @@ export function createApiApp() {
       return res.status(400).json({ error: 'กรุณาเข้าสู่ระบบก่อนส่งแบบประเมิน' });
     }
 
-    const result = createAssessmentLog({
-      st_id: body.st_id,
-      q1: Number(body.q1),
-      q2: Number(body.q2),
-      q3: Number(body.q3),
-      q4: Number(body.q4),
-      q5: Number(body.q5),
-    });
+    try {
+      if (isGasEnabled()) {
+        const gasRes = await callGasPost<GasBaseResponse & { log?: AssessmentLog }>({
+          action: 'createAssessment',
+          st_id: body.st_id,
+          q1: Number(body.q1),
+          q2: Number(body.q2),
+          q3: Number(body.q3),
+          q4: Number(body.q4),
+          q5: Number(body.q5),
+        });
+        if (!gasRes.ok || !gasRes.log) {
+          return res.status(gasRes.status ?? 400).json({
+            error: gasRes.error ?? 'ไม่สามารถบันทึกผลการประเมินลง Google Sheet ได้',
+          });
+        }
+        return res.status(201).json({ log: gasRes.log });
+      }
 
-    if (!result.ok) {
-      return res.status(400).json({ error: result.error });
+      const result = createAssessmentLog({
+        st_id: body.st_id,
+        q1: Number(body.q1),
+        q2: Number(body.q2),
+        q3: Number(body.q3),
+        q4: Number(body.q4),
+        q5: Number(body.q5),
+      });
+
+      if (!result.ok) {
+        return res.status(400).json({ error: result.error });
+      }
+      return res.status(201).json({ log: result.log });
+    } catch (err) {
+      console.error('Create assessment error:', err);
+      return res.status(500).json({ error: 'ไม่สามารถบันทึกผลการประเมินได้' });
     }
-    return res.status(201).json({ log: result.log });
   });
 
   return app;
