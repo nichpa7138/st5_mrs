@@ -1,0 +1,6 @@
+{
+  "name": "ST-5 ระบบประเมินความสุขและความเครียด",
+  "description": "ระบบประเมินตนเองเพื่อวัดระดับความสุขและความเครียด (ST-5) พร้อมประวัติย้อนหลังเฉพาะบุคคลและ Dashboard สรุปสถิติภาพรวมสำหรับนักศึกษาเวชระเบียน",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
